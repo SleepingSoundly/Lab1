@@ -1,7 +1,6 @@
 CC = gcc # default compiler
 CFLAGS = -g -Wall # options
-LDFLAGS =  # no load flags for now
-
+LDFLAGS = -lvirt  # need to load with the virt flag
 
 all: vcpu_scheduler
 
