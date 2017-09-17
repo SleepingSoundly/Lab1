@@ -9,11 +9,11 @@
 #include <libvirt/libvirt.h>
 #include <stdlib.h>
 
-void printNodeInfo(virNodeInfoPtr info){
-	printf(" n : model == %s\n", info->model);
-	printf(" n : memory size  == %lu kb\n", info->memory);
-	printf(" n : # of active CPUs == %d\n", info->cpus);
-	printf(" n : expected CPU frequency  == %d mHz\n", info->mhz);
+void printNodeInfo(virNodeInfo info){
+	printf(" n : model == %s\n", info.model);
+	printf(" n : memory size  == %lu kb\n", info.memory);
+	printf(" n : # of active CPUs == %d\n", info.cpus);
+	printf(" n : expected CPU frequency  == %d mHz\n", info.mhz);
 
 }
 
@@ -41,13 +41,12 @@ int main(int argc, char *argv[]){
 	virDomainPtr dom = NULL; // pointer to a virtual domain, obtained by name or ID
 	
 	virDomainPtr* domains = NULL; // for list of all domains returned by ListAll API	
-	virNodeInfoPtr info;
+	virNodeInfo info;
 	virDomainInfoPtr Dinfo;
 	virTypedParameterPtr params;	
 
+	// open connection to hypervisor
 	conn = virConnectOpen("qemu:///system"); // connect to the hypervisor
-
-
 	if ( conn == NULL ){
 		fprintf(stderr, "Failed to open connection to qemu\n");
 		return 1;
@@ -56,7 +55,8 @@ int main(int argc, char *argv[]){
 		printf("Success!\n");
 	}
 
-	ret = virNodeGetInfo(conn, info);
+	// get node info about the host machine
+	ret = virNodeGetInfo(conn, &info);
 	if ( ret != 0 ){
 		fprintf(stderr, "Failed to get Node info\n");
 		return 1;
@@ -113,7 +113,7 @@ int main(int argc, char *argv[]){
 
  	// after obtaining domains, they must be freed because the function
 	// does an allocation per domain
-	free(info);
+
 	free(domains);	
 	virConnectClose(conn);
 
