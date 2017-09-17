@@ -42,7 +42,7 @@ int main(int argc, char *argv[]){
 	
 	virDomainPtr* domains = NULL; // for list of all domains returned by ListAll API	
 	virNodeInfo info;
-	virDomainInfoPtr Dinfo;
+	virDomainInfo Dinfo;
 	virTypedParameterPtr params;	
 
 	// open connection to hypervisor
@@ -52,7 +52,7 @@ int main(int argc, char *argv[]){
 		return 1;
 	}
 	else{
-		printf("Success!\n");
+		printf("Success! Connected to the qemu:///system hypervisor\n");
 	}
 
 	// get node info about the host machine
@@ -81,7 +81,8 @@ int main(int argc, char *argv[]){
 	}	
 	for(itr = 0; itr < numDomains; itr++){
 		dom = domains[itr];
-		ret = virDomainGetInfo(dom, Dinfo);
+
+		ret = virDomainGetInfo(dom, &Dinfo);
 		if ( ret == -1){
 			fprintf(stderr, "Failed to get Domain info\n");
 			return 1;
@@ -107,7 +108,6 @@ int main(int argc, char *argv[]){
 		}
 
 		printf(" ++ %d: freeing domain\n\n", itr);
-		free(params);	
 		virDomainFree(dom);
 	}
 
