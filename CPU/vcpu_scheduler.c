@@ -9,6 +9,13 @@
 #include <libvirt/libvirt.h>
 #include <stdlib.h>
 #include <sys/time.h>
+#include <string.h>
+
+
+unsigned long long timeDiffArray; // for the number of timestamps we need (# vcpus)
+unsigned long long VcpuDiffArray; // previous VCPU stat values
+
+int* percentPCPUUsed;
 
 void printNodeInfo(virNodeInfo info){
 	printf(" n : model == %s\n", info.model);
@@ -27,38 +34,75 @@ void printDomainInfo(virDomainInfo info){
 	
 }
 
-int main(int argc, char *argv[]){
-	
-	int numDomains;
-	int ret;
-	int flags;
-	int itr, itl, itn;
-	int nVCPUs = 0;
+// update PCPU usage statistics
+int updateNodePCPUs(virConnectPtr conn, int numCPUS){
+
+	int ret, itr, itl = 0; 
 	int nparams = 0;
-	unsigned long long baseTime = 0;
-	
-	unsigned char *cpumaps;
-	
-	virConnectPtr conn; // data structure for opening a connection for full r/w access (app creds needed)
-	
-
-	virDomainPtr dom = NULL; // pointer to a virtual domain, obtained by name or ID
-	
-	virDomainPtr* domains = NULL; // for list of all domains returned by ListAll API	
-	
-	virNodeInfo Ninfo;
 	virNodeCPUStatsPtr pcpuInfo;
+	virNodeCPUStatsPtr temp_pcpuInfo;
 
-	virDomainInfo Dinfo;
-	virTypedParameterPtr params;	
-	virVcpuInfoPtr vcpuInfo;
+	if( virNodeGetCPUStats(conn, VIR_NODE_CPU_STATS_ALL_CPUS, NULL, &nparams, 0) == 0 && nparams != 0){
+		pcpuInfo = calloc(nparams, sizeof(virNodeCPUStats));
+		temp_pcpuInfo = calloc(nparams*numCPUS, sizeof(virNodeCPUStats));
+		printf(" Ncpu+ nparams to collect -> %d\n", nparams);
+		for(itr = 0; itr < numCPUS; itr++){
+			virNodeGetCPUStats(conn, itr, temp_pcpuInfo, &nparams, 0);
+			memcpy((&pcpuInfo + itr*(sizeof(virNodeCPUStatsPtr))), &temp_pcpuInfo, sizeof(virNodeCPUStatsPtr));
+			for( itl = 0; itl < nparams; temp_pcpuInfo++, itl++){
+				printf(" + Pcpu %d: %s, %llu\n", itr,temp_pcpuInfo->field, temp_pcpuInfo->value); 
+			}
+			printf("\n\n");
+		}
+
+	}
+	else
+		return 1;
+
+
+	// pcpu data has been aquired, now to calculate the percent usage 
+
+
+	return ret;
+
+}
+int getPercentPerDomain(virDomainInfo newInfo){
+	int result = 0;
 	
-	unsigned long *timestamps;
-	unsigned long long *vcpustamps;
- 	struct timeval temp_time;
-	unsigned long time, timedif;
-	unsigned long long vcpudif;
-	// open connection to hypervisor
+
+	return result;
+}
+
+
+// check PCPUs to see if any of them are "overworked"
+// return 0 if no, return value of CPU that's highest 
+// % usage if yes
+int shouldSchedule(){
+	int result = 0;
+
+
+	return result;
+
+}
+
+// the scheduler, which takes the integer value of the lowest
+// used CPU and determines which domain needs to be re-pinned
+// FROM that PCPU
+int scheduler(int starvedCPU){
+	int result = 0;
+
+	return result;
+}
+
+// main, controls the scheduler and several data structures
+// related to the Node and its domains
+int main(int argc, char *argv[]){
+
+	int itr, itl, itn, ret = 0; // iterators and return values
+	virConnectPtr conn; // connection structure to hypervisor
+
+	virNodeInfo Ninfo;
+
 	conn = virConnectOpen("qemu:///system"); // connect to the hypervisor
 	if ( conn == NULL ){
 		fprintf(stderr, "Failed to open connection to qemu\n");
@@ -78,118 +122,22 @@ int main(int argc, char *argv[]){
 		printf("Success!\n");
 	}
 
-
 	printNodeInfo(Ninfo);
-	if( virNodeGetCPUStats(conn, VIR_NODE_CPU_STATS_ALL_CPUS, NULL, &nparams, 0) == 0 && nparams != 0){
-		pcpuInfo = calloc(nparams, sizeof(virNodeCPUStats));
-		virNodeGetCPUStats(conn, VIR_NODE_CPU_STATS_ALL_CPUS, pcpuInfo, &nparams, 0);
-	}
-	else
-		return 1;
 
-	// physical CPU data being printed
-	for( itr = 0; itr < nparams; pcpuInfo++, itr++){
-		printf(" + %s, %llu\n", pcpuInfo->field, pcpuInfo->value); 
-	}
-
-	numDomains = virConnectNumOfDomains(conn);
-	printf("\n\n + %d domains connected\n", numDomains);
-	timestamps = calloc(numDomains, sizeof(unsigned long));
-	flags = VIR_CONNECT_LIST_DOMAINS_RUNNING;
-	ret = virConnectListAllDomains(conn, &domains, flags);
+	// initialize the data for the PCPUs
+	percentPCPUUsed = calloc( Ninfo.cpus, sizeof(int));
 
 
-	if( ret < 0){
-		fprintf(stderr, "Failed to obtain domains, exiting\n");
-		return 1;
-	}		
- 	int numVcpus = 0;	
-	for(itr = 0; itr < numDomains; itr++){
-		ret = gettimeofday(&temp_time, NULL);		
-		time = 1000000 * temp_time.tv_sec + temp_time.tv_usec;
-		timestamps[itr] = time;	
-		ret = virDomainGetInfo(domains[itr], &Dinfo);
-		numVcpus += Dinfo.nrVirtCpu;
-		if ( ret == -1){
-			fprintf(stderr, "Failed to get Domain info\n");
-			return 1;
-		}
-	}
-	vcpustamps = calloc(numVcpus, sizeof(unsigned long long));
-
-	while(1){	
+	ret = updateNodePCPUs(conn, Ninfo.cpus);
 
 
-		flags = VIR_CONNECT_LIST_DOMAINS_RUNNING;
-		ret = virConnectListAllDomains(conn, &domains, flags);
 
 
-		if( ret < 0){
-			fprintf(stderr, "Failed to obtain domains, exiting\n");
-			return 1;
-		}		
-	
-	for(itr = 0; itr < numDomains; itr++){
-		dom = domains[itr];
-
-		ret = gettimeofday(&temp_time, NULL);		
-		time = 1000000 * temp_time.tv_sec + temp_time.tv_usec;
-		timedif = time - timestamps[itr];
-		timestamps[itr] = time;		
-
-		printf(" ++ %llu:  %d: Starting analysis\n", timedif, itr);
-
-		ret = virDomainGetInfo(dom, &Dinfo);
-		if ( ret == -1){
-			fprintf(stderr, "Failed to get Domain info\n");
-			return 1;
-		}
-		printDomainInfo(Dinfo);
-
-		cpumaps = calloc(Dinfo.nrVirtCpu, VIR_CPU_MAPLEN(Ninfo.cpus)); // need 
-		vcpuInfo = calloc(Dinfo.nrVirtCpu, sizeof(virVcpuInfoPtr));
-
-		ret = virDomainGetVcpus(dom, vcpuInfo, Dinfo.nrVirtCpu, cpumaps, VIR_CPU_MAPLEN(Ninfo.cpus));
-
-		if( ret == -1 ) {
-			fprintf(stderr, "FAIL at get vcpus, exiting\n");
-			return 1; 
-		}
-
-		for(itl = 0; itl < Dinfo.nrVirtCpu; itl++, vcpuInfo++, cpumaps++){
-			//vcpuInfo = (virVcpuInfo *)cpumaps;
-			printf(" +++ %d : DomainGetVcpu number-> %d\n", itr, vcpuInfo->number);
-			printf(" +++ %d : DomainGetVcpu CPU time -> %llu\n", itr, vcpuInfo->cpuTime);
-			printf(" +++ %d : DomainGetVcpu Pcpu -> %llu\n", itr, vcpuInfo->cpu);
-			printf(" +++ %d : DomainGetVcpu cpumap # -> %c\n", itr, cpumaps);
-
-			for(itn = 0; itn< 8; cpumaps++, itn++){
-				printf("bm: %d\n", cpumaps);
-			}
-			
-
-			vcpudif = vcpustamps[itr + itl] - vcpuInfo->cpuTime;
-			vcpustamps[itr + itl] = vcpuInfo->cpuTime; printf(" +++ %d : vcpu %d time diff == %llu\n", itr, vcpuInfo->number, vcpudif);	
-		}
-
-
-		printf(" ++ %d: freeing domain\n\n", itr);
-		virDomainFree(dom);
-		}
-		sleep(1);
-	}
- 	// after obtaining domains, they must be freed because the function
-	// does an allocation per domain
-
-	free(domains);	
-	virConnectClose(conn);
 
 
 	return 0;
+
 }
-
-
-
 
 
 
