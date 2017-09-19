@@ -163,6 +163,11 @@ int main(int argc, char *argv[]){
 			printf(" +++ %d : DomainGetVcpu Pcpu -> %llu\n", itr, vcpuInfo->cpu);
 			printf(" +++ %d : DomainGetVcpu cpumap # -> %c\n", itr, cpumaps);
 
+			for(itn = 0; itn< 8; cpumaps++, itn++){
+				printf("bm: %d\n", cpumaps);
+			}
+			
+
 			vcpudif = vcpustamps[itr + itl] - vcpuInfo->cpuTime;
 			vcpustamps[itr + itl] = vcpuInfo->cpuTime; printf(" +++ %d : vcpu %d time diff == %llu\n", itr, vcpuInfo->number, vcpudif);	
 		}
