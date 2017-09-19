@@ -12,8 +12,8 @@
 #include <string.h>
 
 
-unsigned long long timeDiffArray; // for the number of timestamps we need (# vcpus)
-unsigned long long VcpuDiffArray; // previous VCPU stat values
+unsigned long long* timeDiffArray; // for the number of timestamps we need (# vcpus)
+unsigned long long* VcpuDiffArray; // previous VCPU stat values
 
 int* percentPCPUUsed;
 
@@ -103,6 +103,21 @@ int main(int argc, char *argv[]){
 
 	virNodeInfo Ninfo;
 
+	// map data
+	unsigned char * cpuMaps; // pointer to a bit map of real CPUS on the host Node. Little endian. FREE
+	unsigned char * map; // initalized to the first CPU
+
+ 
+	unsigned int online; // optional number of online CPUs in cpumap, has success for online if necessary
+	unsigned int flags;
+	int numPcpus = 0 ;
+
+	virDomainPtr dom = NULL; // pointer to a virtual domain, obtained by name or ID
+	virDomainPtr* domains = NULL; // for list of all domains returned by ListAll API	
+	virDomainInfo Dinfo;
+	virTypedParameterPtr params;
+	int numDomains = 0;	
+
 	conn = virConnectOpen("qemu:///system"); // connect to the hypervisor
 	if ( conn == NULL ){
 		fprintf(stderr, "Failed to open connection to qemu\n");
@@ -121,8 +136,65 @@ int main(int argc, char *argv[]){
 	else{
 		printf("Success!\n");
 	}
-
+	numPcpus = Ninfo.cpus;
 	printNodeInfo(Ninfo);
+
+	// get CPU maps from Node Data
+	// no flags necessary, ret value is number of CPUs present
+	ret = virNodeGetCPUMap(conn, &cpuMaps, &online, 0);
+	if ( ret != numPcpus){
+		fprintf(stderr, " ! ret (%d) does not equal the number of CPUS present, weird case, exit\n", ret);
+		return 1;
+	}
+
+	printf(" + Success, aquired bitmapping for active CPUS\n");
+
+	// each byte would be 8 cpus worth, so
+	// we need one bm if there's up to 8 cpus, etc. 
+	// wraps around at 9
+	for(itr = 0; itr<9%numPcpus; itr++){
+		printf(" ++ bm : %d\n", cpuMaps[itr]);
+
+	}
+
+
+
+	// have data for Nodes, now need Domain Data
+	printf("\n\n Starting Domain Data\n");
+	numDomains = virConnectNumOfDomains(conn);
+	printf("\n\n + %d domains connected\n", numDomains);
+
+	// can now allocate space for the amount of VCPUS we'll deal with
+	// ASSUMPTION -> according to the staff, one VCPU per domain
+	timeDiffArray = calloc(numDomains, sizeof(unsigned long long));
+	VcpuDiffArray = calloc(numDomains, sizeof(unsigned long long));
+
+	// list all connected domains in the domain variable
+	flags = VIR_CONNECT_LIST_DOMAINS_RUNNING;
+	ret = virConnectListAllDomains(conn, &domains, flags);
+	if( ret < 0){
+		fprintf(stderr, "Failed to obtain domains, exiting\n");
+		return 1;
+	}		
+ 
+	// initially pin all the vcpus associated with a domain 
+	// to one of the PCPUS we've found
+
+	for (itr = 0; itr< numDomains; itr++){
+		// since there's only one VCPU, the vcpu number will always be 0
+		ret = virDomainPinVcpu(domains[itr], 0, cpuMaps, VIR_CPU_MAPLEN(Ninfo.cpus));
+
+		//map = map>>"0";
+		//if( (int)map >= numPcpus){
+	//		map = 0;
+	//	}
+
+		if( ret != 0 ){
+			fprintf(stderr, " Initial Pinning failed, exit\n");
+			return 1;
+		}
+
+	}
 
 	// initialize the data for the PCPUs
 	percentPCPUUsed = calloc( Ninfo.cpus, sizeof(int));
@@ -133,7 +205,7 @@ int main(int argc, char *argv[]){
 
 
 
-
+	free(cpuMaps);
 
 	return 0;
 
