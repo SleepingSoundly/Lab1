@@ -141,6 +141,7 @@ int main(int argc, char *argv[]){
 
 	// get CPU maps from Node Data
 	// no flags necessary, ret value is number of CPUs present
+	ret = virNodeGetCPUMap(conn, &map, &online, 0);
 	ret = virNodeGetCPUMap(conn, &cpuMaps, &online, 0);
 	if ( ret != numPcpus){
 		fprintf(stderr, " ! ret (%d) does not equal the number of CPUS present, weird case, exit\n", ret);
@@ -179,15 +180,22 @@ int main(int argc, char *argv[]){
  
 	// initially pin all the vcpus associated with a domain 
 	// to one of the PCPUS we've found
-
+	
+	// initialize the map mover to 1, for the first available PCPU		
+	*map &= 0x01;
 	for (itr = 0; itr< numDomains; itr++){
 		// since there's only one VCPU, the vcpu number will always be 0
-		ret = virDomainPinVcpu(domains[itr], 0, cpuMaps, VIR_CPU_MAPLEN(Ninfo.cpus));
+		ret = virDomainPinVcpu(domains[itr], 0, map, VIR_CPU_MAPLEN(Ninfo.cpus));
+	
+		printf(" ++ vcpu %d: set to pcpu %d\n", itr, map[0]);
 
-		//map = map>>"0";
-		//if( (int)map >= numPcpus){
-	//		map = 0;
-	//	}
+		*map<<=1;
+		// note that the map[0] code is specialized to 8 PCPUs tops, otherwise problems. 	
+		if( map[0] > numPcpus+1){
+			// ROLL: need to go back to the beginning of the PCPUS
+			*map &= 0x00;
+			*map |= 0x01; 	
+		}
 
 		if( ret != 0 ){
 			fprintf(stderr, " Initial Pinning failed, exit\n");
@@ -197,16 +205,23 @@ int main(int argc, char *argv[]){
 	}
 
 	// initialize the data for the PCPUs
-	percentPCPUUsed = calloc( Ninfo.cpus, sizeof(int));
+	percentPCPUUsed = calloc( numPcpus, sizeof(int));
+	printf("\n\n Initializing Node CPU data\n");	
+	ret = updateNodePCPUs(conn, numPcpus);
+
+	
+	// enter scheduler
+
+	 
 
 
-	ret = updateNodePCPUs(conn, Ninfo.cpus);
-
-
-
-
+	// free everything you can
+	for(itr = 0; itr < numDomains; itr++){
+		virDomainFree(domains[itr]);
+	}
+	free(domains);	
 	free(cpuMaps);
-
+	virConnectClose(conn);
 	return 0;
 
 }
