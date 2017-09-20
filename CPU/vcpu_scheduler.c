@@ -12,10 +12,30 @@
 #include <string.h>
 
 
-unsigned long long* timeDiffArray; // for the number of timestamps we need (# vcpus)
+unsigned long* timeDiffArray; // for the number of timestamps we need (# vcpus)
 unsigned long long* VcpuDiffArray; // previous VCPU stat values
 
 int* percentPCPUUsed;
+
+// takes in index, gives diff since last time stamp taken per VCPU
+unsigned long getTimeDiff(int itr){
+	struct timeval temp_time;
+	int ret = 0;
+	unsigned long time, timedif, oldTime = 0;
+
+	timedif = 0;
+	oldTime = *(&timeDiffArray + sizeof(unsigned long) *itr);
+	ret = gettimeofday(&temp_time, NULL);		
+ 	time = 1000000 * temp_time.tv_sec + temp_time.tv_usec;
+
+	if( oldTime != 0){
+		timedif = time - oldTime;
+	}
+	memcpy((&timeDiffArray + sizeof(unsigned long)*itr), &time, sizeof(unsigned long));
+	printf(" t:%lu\n", timedif);
+	return timedif;
+}
+
 
 void printNodeInfo(virNodeInfo info){
 	printf(" n : model == %s\n", info.model);
@@ -45,14 +65,14 @@ int updateNodePCPUs(virConnectPtr conn, int numCPUS){
 	if( virNodeGetCPUStats(conn, VIR_NODE_CPU_STATS_ALL_CPUS, NULL, &nparams, 0) == 0 && nparams != 0){
 		pcpuInfo = calloc(nparams, sizeof(virNodeCPUStats));
 		temp_pcpuInfo = calloc(nparams*numCPUS, sizeof(virNodeCPUStats));
-		printf(" Ncpu+ nparams to collect -> %d\n", nparams);
+		// printf(" Ncpu+ nparams to collect -> %d\n", nparams);
 		for(itr = 0; itr < numCPUS; itr++){
 			virNodeGetCPUStats(conn, itr, temp_pcpuInfo, &nparams, 0);
 			memcpy((&pcpuInfo + itr*(sizeof(virNodeCPUStatsPtr))), &temp_pcpuInfo, sizeof(virNodeCPUStatsPtr));
-			for( itl = 0; itl < nparams; temp_pcpuInfo++, itl++){
-				printf(" + Pcpu %d: %s, %llu\n", itr,temp_pcpuInfo->field, temp_pcpuInfo->value); 
-			}
-			printf("\n\n");
+			//for( itl = 0; itl < nparams; temp_pcpuInfo++, itl++){
+			//	printf(" + Pcpu %d: %s, %llu\n", itr,temp_pcpuInfo->field, temp_pcpuInfo->value); 
+			//}
+			//printf("\n\n");
 		}
 
 	}
@@ -66,9 +86,65 @@ int updateNodePCPUs(virConnectPtr conn, int numCPUS){
 	return ret;
 
 }
-int getPercentPerDomain(virDomainInfo newInfo){
-	int result = 0;
+// updates the percent CPU usage per domain 
+// expects output from params from virDomainGetCPUStats per VCPU (1 in our world)
+int updatePercentPerDomain(virDomainPtr domain, int domainIndex, unsigned int nparams){
+	int itr, result, ret, percent= 0;
+	unsigned long long new_cpuTime = 0;
+	unsigned long long old_cpuTime = 0;
+	double newcpu = 0;
+	double oldcpu = 0;
+	double diff = 0;
+	unsigned long long timediff = 0;
+	virTypedParameterPtr params;
 	
+ 	params = calloc(nparams, sizeof(virTypedParameter));
+	ret = virDomainGetCPUStats(domain, params, nparams, 0, 1, 0); // nparams for the whole domain (b/c one VCPU)
+	printf(" WHERE IS MY NEW_VALUE -> %llu\n", params->value);
+	
+	// for this domain, we only care about parameter 1, the cpu_time
+	// printf(" memory allocated for vectors at %lu %llu %llu\n", &percentPCPUUsed, &VcpuDiffArray, &timeDiffArray);
+
+	// set up new params
+	memset(&new_cpuTime, 0, sizeof(unsigned long long));
+	memcpy(&new_cpuTime, &params->value, sizeof(unsigned long long));
+
+	//printf(" WHERE IS MY NEW_VALUE -> %llu\n", new_cpuTime);
+	//printf(" ++ %d : need another sample to address %llu, which currently looks like.... %llu\n", domainIndex, *(&VcpuDiffArray + domainIndex*(sizeof(unsigned long long))), *(&VcpuDiffArray + domainIndex*(sizeof(unsigned long long)))  );
+	
+	// grab old value of the vcpu
+	memset(&old_cpuTime, 0, sizeof(unsigned long long));
+	memcpy(&old_cpuTime, (&VcpuDiffArray + domainIndex*(sizeof(unsigned long long))), sizeof(unsigned long long));
+
+	//printf(" WHERE IS MY OLD_VALUE -> %llu\n", old_cpuTime);
+	timediff = (unsigned long long)getTimeDiff(domainIndex);
+
+
+	if( old_cpuTime == 0){
+		printf(" ++ %d : i -> initialized to our first value: %llu\n", domainIndex, new_cpuTime);
+		memcpy( (&VcpuDiffArray + domainIndex*(sizeof(unsigned long long))), &new_cpuTime, sizeof(unsigned long long));
+
+	}
+	else{
+		if(timediff == 0){
+			printf(" !! No timestamp data yet for samples, check back later. \n");
+			return 0;
+		}	
+		printf(" t: %llu\n", timediff * 1000);
+		newcpu = (double)new_cpuTime;
+		oldcpu = (double)old_cpuTime;
+		printf(" Diff -> %d\n", new_cpuTime - old_cpuTime );
+		diff = (double)(new_cpuTime - old_cpuTime);
+		diff = (( diff * 100)/ ((double)timediff *1000)) ; // diff in nanoseconds
+
+		printf(" !! before vcpu -> %llu\n", diff);
+		
+		percent = (int)(diff) ;	
+
+		
+		printf(" ++ %d : Percent usage change since last sample %i\n", domainIndex, percent);
+	}
+
 
 	return result;
 }
@@ -88,6 +164,8 @@ int shouldSchedule(){
 // the scheduler, which takes the integer value of the lowest
 // used CPU and determines which domain needs to be re-pinned
 // FROM that PCPU
+// TODO:  DO NOT FORGET TO RESET THE PERCENTUSED VALUE, it will NOT be for the 
+// right CPU after you pin. 
 int scheduler(int starvedCPU){
 	int result = 0;
 
@@ -115,8 +193,9 @@ int main(int argc, char *argv[]){
 	virDomainPtr dom = NULL; // pointer to a virtual domain, obtained by name or ID
 	virDomainPtr* domains = NULL; // for list of all domains returned by ListAll API	
 	virDomainInfo Dinfo;
-	virTypedParameterPtr params;
-	int numDomains = 0;	
+int numDomains = 0;
+
+	unsigned int nparams = 0;
 
 	conn = virConnectOpen("qemu:///system"); // connect to the hypervisor
 	if ( conn == NULL ){
@@ -167,10 +246,7 @@ int main(int argc, char *argv[]){
 
 	// can now allocate space for the amount of VCPUS we'll deal with
 	// ASSUMPTION -> according to the staff, one VCPU per domain
-	timeDiffArray = calloc(numDomains, sizeof(unsigned long long));
-	VcpuDiffArray = calloc(numDomains, sizeof(unsigned long long));
-
-	// list all connected domains in the domain variable
+		// list all connected domains in the domain variable
 	flags = VIR_CONNECT_LIST_DOMAINS_RUNNING;
 	ret = virConnectListAllDomains(conn, &domains, flags);
 	if( ret < 0){
@@ -205,14 +281,38 @@ int main(int argc, char *argv[]){
 	}
 
 	// initialize the data for the PCPUs
-	percentPCPUUsed = calloc( numPcpus, sizeof(int));
-	printf("\n\n Initializing Node CPU data\n");	
+	percentPCPUUsed = calloc( numDomains, sizeof(int));
+	VcpuDiffArray = calloc( numDomains, sizeof(unsigned long long));
+	timeDiffArray = calloc( numDomains, sizeof(unsigned long long));
+
+	memset(&percentPCPUUsed, 0, numDomains*sizeof(int));
 	ret = updateNodePCPUs(conn, numPcpus);
 
+	memset(&timeDiffArray, 0, sizeof(unsigned long long)*numDomains);	
+	memset(&VcpuDiffArray, 0, sizeof(unsigned long long)*numDomains);	
+
+
+
 	
+	nparams = virDomainGetCPUStats(domains[0], NULL, 0, -1, 1, 0); // nparams for the whole domain (b/c one VCPU)
+	// initialize the data for the VCPU info
+
+	while(1){
+	
+		for(itr = 0; itr < numDomains; itr++){
+			printf(" + Domain %d: Analysing\n", itr);
+			ret = updatePercentPerDomain(domains[itr], itr, nparams);
+		}// iterate through domains
+
+		printf("\n");
+		sleep(1);
+	}
+
 	// enter scheduler
 
-	 
+	
+
+
 
 
 	// free everything you can
