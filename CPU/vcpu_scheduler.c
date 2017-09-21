@@ -14,6 +14,7 @@
 
 unsigned long* timeDiffArray; // for the number of timestamps we need (# vcpus)
 unsigned long long* VcpuDiffArray; // previous VCPU stat values
+unsigned long long* PcpuDiffArray; // Pcpu diff values per pcpu
 
 int* percentPCPUUsed;
 
@@ -97,11 +98,22 @@ int updatePercentPerDomain(virDomainPtr domain, int domainIndex, unsigned int np
 	double diff = 0;
 	unsigned long long timediff = 0;
 	virTypedParameterPtr params;
+	virVcpuInfoPtr vcpuInfo;
+
 	
  	params = calloc(nparams, sizeof(virTypedParameter));
+	vcpuInfo = calloc(1, sizeof(virVcpuInfoPtr));
 	ret = virDomainGetCPUStats(domain, params, nparams, 0, 1, 0); // nparams for the whole domain (b/c one VCPU)
 	printf(" WHERE IS MY NEW_VALUE -> %llu\n", params->value);
-	
+	ret = virDomainGetVcpus(domain, vcpuInfo, 1, NULL, 0); // called with 1 pcup, since that's all it will ever have affinity for at this point	
+
+	printf(" ++ %d: Domain VCPU number -> %d\n", domainIndex, vcpuInfo->number);
+	printf(" ++ %d: Domain VCPU cpuTime -> %llu\n", domainIndex, vcpuInfo->cpuTime);
+	printf(" ++ %d: Domain VCPU cpu -> %d\n", domainIndex, vcpuInfo->cpu);
+
+
+
+
 	// for this domain, we only care about parameter 1, the cpu_time
 	// printf(" memory allocated for vectors at %lu %llu %llu\n", &percentPCPUUsed, &VcpuDiffArray, &timeDiffArray);
 
