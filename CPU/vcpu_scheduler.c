@@ -107,21 +107,13 @@ int updatePercentPerDomain(virDomainPtr domain, int domainIndex, unsigned int np
  	params = calloc(nparams, sizeof(virTypedParameter));
 	vcpuInfo = calloc(1, sizeof(virVcpuInfoPtr));
 	ret = virDomainGetCPUStats(domain, params, nparams, 0, 1, 0); // nparams for the whole domain (b/c one VCPU)
-	printf(" WHERE IS MY NEW_VALUE -> %llu\n", params->value);
+	//printf(" WHERE IS MY NEW_VALUE -> %llu\n", params->value);
 	ret = virDomainGetVcpus(domain, vcpuInfo, 1, NULL, 0); // called with 1 pcup, since that's all it will ever have affinity for at this point	
 
-	printf(" ++ %d: Domain VCPU number -> %d\n", domainIndex, vcpuInfo->number);
-	printf(" ++ %d: Domain VCPU cpuTime -> %llu\n", domainIndex, vcpuInfo->cpuTime);
-	printf(" ++ %d: Domain VCPU cpu -> %d\n", domainIndex, vcpuInfo->cpu);
+	//printf(" ++ %d: Domain VCPU number -> %d\n", domainIndex, vcpuInfo->number);
+	//printf(" ++ %d: Domain VCPU cpuTime -> %llu\n", domainIndex, vcpuInfo->cpuTime);
+	//printf(" ++ %d: Domain VCPU cpu -> %d\n", domainIndex, vcpuInfo->cpu);
 	PcpuIndex = domainIndex; // which PCPU are we using for this domain	
-	//	*map<<=1;
-		// note that the map[0] code is specialized to 8 PCPUs tops, otherwise problems. 	
-	//	if( map[0] > numPcpus+1){
-			// ROLL: need to go back to the beginning of the PCPUS
-	//		*map &= 0x00;
-	//		*map |= 0x01; 	
-	//	}
-
 
 	// for this domain, we only care about parameter 1, the cpu_time
 	// printf(" memory allocated for vectors at %lu %llu %llu\n", &percentPCPUUsed, &VcpuDiffArray, &timeDiffArray);
@@ -145,8 +137,8 @@ int updatePercentPerDomain(virDomainPtr domain, int domainIndex, unsigned int np
 	memcpy(&old_PcpuTime, (&PcpuDiffArray + PcpuIndex*(sizeof(unsigned long long))), sizeof(unsigned long long));
 
 
-	printf(" WHERE IS MY OLD_VALUE -> %llu\n", old_cpuTime);
-	printf(" 		and PCPU -> %llu\n", old_PcpuTime);
+	//printf(" WHERE IS MY OLD_VALUE -> %llu\n", old_cpuTime);
+	//printf(" 		and PCPU -> %llu\n", old_PcpuTime);
 //	timediff = (unsigned long long)getTimeDiff(domainIndex);
 
 
