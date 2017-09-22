@@ -88,7 +88,7 @@ int updatePercentPerDomain(virDomainPtr domain, int domainIndex){
 	
 
 	//printf(" ++ %d: Domain VCPU number -> %d\n", domainIndex, vcpuInfo->number);
-	printf(" ++ %d: Domain VCPU cpuTime -> %llu\n", domainIndex, vcpuInfo->cpuTime);
+	//printf(" ++ %d: Domain VCPU cpuTime -> %llu\n", domainIndex, vcpuInfo->cpuTime);
 	//printf(" ++ %d: Domain VCPU cpu -> %d\n", domainIndex, vcpuInfo->cpu);
 
 	// set up new params
@@ -101,13 +101,13 @@ int updatePercentPerDomain(virDomainPtr domain, int domainIndex){
 	memcpy(&old_cpuTime, (&VcpuDiffArray + domainIndex*(sizeof(unsigned long long))), sizeof(unsigned long long));
 
 
-	printf(" WHERE IS MY OLD_VALUE -> %llu\n", old_cpuTime);
+	//printf(" WHERE IS MY OLD_VALUE -> %llu\n", old_cpuTime);
 
 	if( old_cpuTime == 0 ){
 		printf(" ++ %d : i -> initialized to our first value: %llu\n", domainIndex, new_cpuTime);
 	}
 	else{
-		printf(" ++ Diff -> %llu\n", new_cpuTime - old_cpuTime );
+		//printf(" ++ Diff -> %llu\n", new_cpuTime - old_cpuTime );
 	
 		diff = (new_cpuTime - old_cpuTime);
 		Pdiff = (double)(1000 * 1000 * 1000);
@@ -120,7 +120,7 @@ int updatePercentPerDomain(virDomainPtr domain, int domainIndex){
 		
 		// printf(" !! change in doubles for this vcpu-> %llu\n", down);
 		percent = (int)(down);	
-		printf(" ++ %d : Percent usage change since last sample %i ++ %i\n", PcpuIndex, *(&percentPCPUUsed + sizeof(int)*PcpuIndex), percent);
+	//	printf(" ++ %d : Percent usage change since last sample %i ++ %i\n", PcpuIndex, *(&percentPCPUUsed + sizeof(int)*PcpuIndex), percent);
 	
 		percent = *(&percentPCPUUsed + sizeof(int)*PcpuIndex) + percent; // add percent usage here
 		memcpy((&percentPCPUUsed + sizeof(int)*PcpuIndex), &percent, sizeof(int));
@@ -141,7 +141,7 @@ int updatePercentPerDomain(virDomainPtr domain, int domainIndex){
 int shouldSchedule(int numPcpus){
 	int result = 0;
 	int itr = 0;
-	int flag;
+	int flag=0;
 	int highestUsage = 0;
 	int index;
 	int percent;
@@ -161,6 +161,7 @@ int shouldSchedule(int numPcpus){
 	}
 	if (flag == numPcpus){
 		// nothing we can do, the loads are even, but above the high value	
+		printf(" !! Loads are evenly distributed, even though they're very high, no scheduling\n");
 		return -1;
 	}
 	else{
@@ -189,7 +190,7 @@ int scheduler(int busyPcpu, int numPcpus){
 			index = itr; 
 		}
 	}
-	printf(" s : Attempting to alliviate PCPU%d by moving VCPU%d\n", busyPcpu, index);
+	printf(" s : Attempting to alliviate PCPU%d by moving something to PCPU%d\n", busyPcpu, index);
 	return index;
 }
 
@@ -296,7 +297,7 @@ int main(int argc, char *argv[]){
 
 		*map<<=1;
 		// note that the map[0] code is specialized to 8 PCPUs tops, otherwise problems. 	
-		if( map[0] > numPcpus+1){
+		if( map[0] > numPcpus*2){
 			// ROLL: need to go back to the beginning of the PCPUS
 			*map &= 0x00;
 			*map |= 0x01; 	
@@ -323,10 +324,10 @@ int main(int argc, char *argv[]){
 			memcpy((&percentPCPUUsed + sizeof(int)*itr), &itl, sizeof(int));
 		}
 
-		printf(" ii : Cleared %d CPUS for consumption: %i\n", numPcpus, *(&percentPCPUUsed + sizeof(int)));
+		//printf(" ii : Cleared %d CPUS for consumption: %i\n", numPcpus, *(&percentPCPUUsed + sizeof(int)));
 	
 		for(itr = 0; itr < numDomains; itr++){
-			printf(" + Domain %d: Analysing\n", itr);
+			//printf(" + Domain %d: Analysing\n", itr);
 			ret = updatePercentPerDomain(domains[itr], itr);
 		}// iterate through domains to update the % amounts used on a PCPU they're associated with
 
@@ -336,15 +337,16 @@ int main(int argc, char *argv[]){
 		if( ret != -1)
 		{
 			busyPcpu = ret;
+			
+	
+			//printf(" ++ PCPU%d map set to pcpu %d\n", busyPcpu, map[0]);
+	
+			ret = scheduler(busyPcpu, numPcpus); // call the scheduler on the first pcpu we got with usage above 50
+		
 			*map &= 0x01;
 			for (itr = 0; itr< ret; itr++){
 				*map<<=1;
 			}
-	
-			printf(" ++ PCPU%d map set to pcpu %d\n", busyPcpu, map[0]);
-	
-			ret = scheduler(busyPcpu, numPcpus); // call the scheduler on the first pcpu we got with usage above 50
-		
 
 			// figure out which VCPU to reassign
 			for(itr = 0; itr < numDomains; itr++){
