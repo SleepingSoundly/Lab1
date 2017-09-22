@@ -106,8 +106,6 @@ int updatePercentPerDomain(virDomainPtr domain, int domainIndex){
 
 	if( old_cpuTime == 0 ){
 		printf(" ++ %d : i -> initialized to our first value: %llu\n", domainIndex, new_cpuTime);
-		memcpy( (&VcpuDiffArray + domainIndex*(sizeof(unsigned long long))), &new_cpuTime, sizeof(unsigned long long));
-		return 0;
 	}
 	else{
 		printf(" ++ Diff -> %llu\n", new_cpuTime - old_cpuTime );
@@ -130,6 +128,9 @@ int updatePercentPerDomain(virDomainPtr domain, int domainIndex){
 
 	}
 
+	// put new value into array and move on.
+	memcpy( (&VcpuDiffArray + domainIndex*(sizeof(unsigned long long))), &new_cpuTime, sizeof(unsigned long long));
+	
 
 	return result;
 }
