@@ -76,7 +76,6 @@ int updatePercentPerDomain(virDomainPtr domain, int domainIndex){
 	unsigned long long old_cpuTime = 0;
 	unsigned long long diff = 0;
 	unsigned long long Pdiff = 0;
-	virDomainInfoPtr Dinfo;
 	virVcpuInfoPtr vcpuInfo;
 	int PcpuIndex = 0;
 	double down  = 0.0;
@@ -142,30 +141,63 @@ int updatePercentPerDomain(virDomainPtr domain, int domainIndex){
 int shouldSchedule(int numPcpus){
 	int result = 0;
 	int itr = 0;
+	int flag;
+	int highestUsage = 0;
+	int index;
+	int percent;
+
+	index = -1;
+
 	for(itr = 0; itr < numPcpus; itr++){
-		printf("  + %d: usage: %d\n", itr, *(&percentPCPUUsed + sizeof(int)*itr));
+		percent = *(&percentPCPUUsed + sizeof(int)*itr);
+		printf("  + %d: usage: %d\n", itr, percent);
+		if(percent > 50 ) {
+			flag++;
+			if(percent > highestUsage){
+				highestUsage = percent;
+				index = itr; 
+			}
+		}
+	}
+	if (flag == numPcpus){
+		// nothing we can do, the loads are even, but above the high value	
+		return -1;
+	}
+	else{
+		// there is a place we can reschedule a vcpu, potentially, return the highest usage one
+		return index;
 	}
 
-	return result;
+	return -1;
 
 }
 
 // the scheduler, which takes the integer value of the lowest
 // used CPU and determines which domain needs to be re-pinned
 // FROM that PCPU
-// TODO:  DO NOT FORGET TO RESET THE PERCENTUSED VALUE, it will NOT be for the 
-// right CPU after you pin. 
-int scheduler(int starvedCPU){
-	int result = 0;
-
-	return result;
+int scheduler(int busyPcpu, int numPcpus){
+	int ret, result, itr, percent = 0;
+	int lowestUsage = 100;
+	int index = -1;
+	// we need to take one of the VCPUs assigned to the busy PCPU 
+	// given and assign it to a more quiet one than the one we're on 
+	// find the quietest one
+	for(itr = 0; itr < numPcpus; itr++){
+		percent = *(&percentPCPUUsed + sizeof(int)*itr);
+		if(percent < lowestUsage){
+			lowestUsage = percent;
+			index = itr; 
+		}
+	}
+	printf(" s : Attempting to alliviate PCPU%d by moving VCPU%d\n", busyPcpu, index);
+	return index;
 }
 
 // main, controls the scheduler and several data structures
 // related to the Node and its domains
 int main(int argc, char *argv[]){
 
-	int itr, itl, itn, ret = 0; // iterators and return values
+	int itr, itl, ret = 0; // iterators and return values
 	virConnectPtr conn; // connection structure to hypervisor
 
 	virNodeInfo Ninfo;
@@ -181,10 +213,10 @@ int main(int argc, char *argv[]){
 
 	virDomainPtr dom = NULL; // pointer to a virtual domain, obtained by name or ID
 	virDomainPtr* domains = NULL; // for list of all domains returned by ListAll API	
-	virDomainInfo Dinfo;
-int numDomains = 0;
-
+	int numDomains = 0;
+	virVcpuInfoPtr vcpuInfo;
 	unsigned int nparams = 0;
+	int busyPcpu = 0;
 
 	if(argc < 2){
 		printf(" Please give number of seconds for the scheduler to sleep\n");
@@ -278,9 +310,7 @@ int numDomains = 0;
 	}
 
 	// initialize the data for the PCPUs
-	//percentPCPUUsed = calloc( numPcpus, sizeof(int));
 	percentPCPUUsed = malloc(numPcpus * sizeof(int));
-
 	memset(&percentPCPUUsed, 0, numPcpus*sizeof(int));
 	memset(&VcpuDiffArray, 0, sizeof(unsigned long long)*numDomains);	
 	
@@ -301,19 +331,37 @@ int numDomains = 0;
 		}// iterate through domains to update the % amounts used on a PCPU they're associated with
 
 		// calculated all the changes, should we change a pinning? 
-		ret = shouldSchedule(numPcpus);
-
-		if( ret != 0)
+		ret = shouldSchedule(numPcpus); // ret contains the value of the busy cpu
+	
+		if( ret != -1)
 		{
-			printf(" s -> rescheduling \n");
+			busyPcpu = ret;
+			*map &= 0x01;
+			for (itr = 0; itr< ret; itr++){
+				*map<<=1;
+			}
+	
+			printf(" ++ PCPU%d map set to pcpu %d\n", busyPcpu, map[0]);
+	
+			ret = scheduler(busyPcpu, numPcpus); // call the scheduler on the first pcpu we got with usage above 50
+		
+
+			// figure out which VCPU to reassign
+			for(itr = 0; itr < numDomains; itr++){
+				vcpuInfo = calloc(1, sizeof(virVcpuInfoPtr));
+				ret = virDomainGetVcpus(domains[itr], vcpuInfo, 1, NULL, 0); // called with 1 pcup, since that's all it will ever have affinity for at this point	
+				if(vcpuInfo->cpu == busyPcpu ){
+					printf(" s -> rescheduling VCPU/domain %d to PCPU %d \n", itr, map[0]);
+					break;
+				}
+			}
+			ret = virDomainPinVcpu(domains[itr], 0, map, VIR_CPU_MAPLEN(Ninfo.cpus));
 			
 		}
-
 		printf("sleep %d\n", seconds);
 		sleep(seconds);
 	}
 
-	// enter scheduler
 
 	
 
