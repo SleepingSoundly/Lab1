@@ -199,19 +199,19 @@ int scheduler(int busyPcpu, int numPcpus){
 int main(int argc, char *argv[]){
 
 	int itr, itl, ret = 0; // iterators and return values
-	virConnectPtr conn; // connection structure to hypervisor
+	unsigned int online; // optional number of online CPUs in cpumap, has success for online if necessary
+	unsigned int flags;
+	int numPcpus = 0 ;
 
+	double seconds = 0.0;
+
+	virConnectPtr conn; // connection structure to hypervisor
 	virNodeInfo Ninfo;
-	int seconds;
 	// map data
 	unsigned char * cpuMaps; // pointer to a bit map of real CPUS on the host Node. Little endian. FREE
 	unsigned char * map; // initalized to the first CPU
 
  
-	unsigned int online; // optional number of online CPUs in cpumap, has success for online if necessary
-	unsigned int flags;
-	int numPcpus = 0 ;
-
 	virDomainPtr dom = NULL; // pointer to a virtual domain, obtained by name or ID
 	virDomainPtr* domains = NULL; // for list of all domains returned by ListAll API	
 	int numDomains = 0;
@@ -223,8 +223,8 @@ int main(int argc, char *argv[]){
 		printf(" Please give number of seconds for the scheduler to sleep\n");
 		return 1;
 	}
-	seconds = atoi(argv[1]);
-	printf(" Starting, sleeps %d seconds\n", seconds);
+	seconds = (double)(atof(argv[1])*1000*1000);
+	printf(" Starting, sleeps %f seconds\n", seconds);
 
 	conn = virConnectOpen("qemu:///system"); // connect to the hypervisor
 	if ( conn == NULL ){
@@ -360,8 +360,8 @@ int main(int argc, char *argv[]){
 			ret = virDomainPinVcpu(domains[itr], 0, map, VIR_CPU_MAPLEN(Ninfo.cpus));
 			
 		}
-		printf("sleep %d\n", seconds);
-		sleep(seconds);
+		printf("sleep %f\n", seconds);
+		usleep(seconds);
 	}
 
 
