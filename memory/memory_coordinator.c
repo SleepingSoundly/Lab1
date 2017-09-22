@@ -30,13 +30,12 @@ void printDomainInfo(virDomainInfo info){
 }
 
 
-
 // main, controls the scheduler and several data structures
 // related to the Node and its domains
 int main(int argc, char *argv[]){
 
 
-	int itr, itl, ret = 0; // iterators and return values
+	int itr, itl, itn, ret = 0; // iterators and return values
 	virConnectPtr conn; // connection structure to hypervisor
 
 	virNodeInfo Ninfo;
@@ -47,6 +46,14 @@ int main(int argc, char *argv[]){
 	int numDomains = 0;
 	virDomainMemoryStatStruct memStats[VIR_DOMAIN_MEMORY_STAT_NR];
 	unsigned int flags;
+	unsigned int threashold;
+	int notInit = 0;
+	unsigned long long currentStat;
+	unsigned long long highestMem = 0;
+	unsigned long long check;
+	int deflate = -1;	
+	
+
 
 	if(argc < 2){
 		printf(" Please give number of seconds for the scheduler to sleep\n");
@@ -92,10 +99,8 @@ int main(int argc, char *argv[]){
 
 
 	// initialize the data for the memory usage 
-	//percentUsed = malloc(numPcpus * sizeof(int));
-	//memset(&percentPCPUUsed, 0, numPcpus*sizeof(int));
-	virtMemDiffArray = malloc(sizeof(unsigned long)*numDomains);
-	memset(&virtMemDiffArray, 0, sizeof(unsigned long)*numDomains);	
+	virtMemDiffArray = malloc(sizeof(unsigned long long)*numDomains);
+	memset(&virtMemDiffArray, 0, sizeof(unsigned long long)*numDomains);	
 	flags = VIR_DOMAIN_AFFECT_LIVE;
 	for(itr = 0; itr< numDomains;itr++){// have every domain take stats every second
 		ret = virDomainSetMemoryStatsPeriod(domains[itr], 1, flags); 
@@ -105,10 +110,11 @@ int main(int argc, char *argv[]){
 	sleep(1);
 		
 	// take a look at inital values for Memory Stats
-
+	threashold = 150;
 	while(1){
 		printf(" ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n");
 		for(itr = 0; itr< numDomains;itr++){// have every domain take stats every second
+
 			ret = virDomainMemoryStats(domains[itr], memStats, VIR_DOMAIN_MEMORY_STAT_NR, 0);
 			if (ret < 0){
 				fprintf(stderr, " !! Error, no memory stats, exiting\n");
@@ -116,17 +122,57 @@ int main(int argc, char *argv[]){
 			}
 
 			printf("\n + Analysing domain %d, with available memstats %d/%d requested\n", itr, ret, VIR_DOMAIN_MEMORY_STAT_NR);
-
 			for(itl = 0; itl<ret; itl++){
 				if(memStats[itl].tag == VIR_DOMAIN_MEMORY_STAT_UNUSED){
-					printf(" ++ %d: Unused Memory-> %llu\n", itr, memStats[itl].val/ 1024);
+					currentStat = memStats[itl].val / 1024;
+					printf(" ++ %d: Unused Memory-> %llu == %llu / 1024\n", itr, currentStat, memStats[itl].val);
+					memcpy((&virtMemDiffArray + sizeof(unsigned long long)*itr), &currentStat, sizeof(unsigned long long));
+					printf(" %d: %llu: %llu > %llu\n", itr, (&virtMemDiffArray + sizeof(unsigned long long)*itr), *(&virtMemDiffArray + sizeof(unsigned long long)*itr));
+						
+					if( currentStat < threashold && notInit==1 ){ // should probably do something about this
+	
+						// who should we deflate? 
+						for(itn = 0; itn<numDomains; itn++){
+							check = *(&virtMemDiffArray + sizeof(unsigned long long)*itn);
+							if(check > highestMem){
+
+								printf(" %d: %llu: %llu > %llu\n", itn, (&virtMemDiffArray + sizeof(unsigned long long)*itn), check, highestMem);
+								highestMem = check;	
+								deflate = itn;
+							}						
+						}			
+						// if it doesn't assign something we've goofed
+						if( deflate == -1 ){
+							printf(" NOPE\n");
+							return 1;
+						}
+						// get defaltes memory usage and cut it in half. 
+
+						currentStat = ((unsigned long long)*(&virtMemDiffArray + sizeof(unsigned long long)*deflate))/ 2;
+
+						printf(" !! %d: Reassigning %llu kb of memory from %d\n", itr, currentStat, deflate);
+						ret = virDomainSetMemory(domains[deflate], currentStat);
+						// assign that amount to the domain that needs the memory
+						ret = virDomainSetMemory(domains[itr], currentStat);
+						deflate = -1;	
+						highestMem = 0;
+						break;
+					}
+
 				}
-				else if(memStats[itl].tag == VIR_DOMAIN_MEMORY_STAT_AVAILABLE){
-					printf(" ++ %d: Available Memory-> %llu\n", itr, memStats[itl].val/ 1024);
-				}		
+				//else if(memStats[itl].tag == VIR_DOMAIN_MEMORY_STAT_AVAILABLE){
+			//		currentStat = memStats[itl].val / 1024;
+			//		printf(" ++ %d: Available Memory-> %llu\n", itr, currentStat);
+			//		
+			//	}	
+			//	else if(memStats[itl].tag == VIR_DOMAIN_MEMORY_STAT_ACTUAL_BALLOON){
+			//		printf(" ++ %d: Balloon stats-> %llu\n", itr, memStats[itl].val/ 1024);
+			//	}	
+				//break;
 			}	
 	
 		}
+		notInit = 1;
 		usleep(sleepVal);
 	}
 
