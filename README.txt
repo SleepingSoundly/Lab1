@@ -2,7 +2,7 @@
 *
 *	Lab 1 Read Me
 *
-*
+* -- for individual section readmes, see the directories
 *
 *
 *********************************************
